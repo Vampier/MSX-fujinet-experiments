@@ -6,14 +6,78 @@ $page = max(100, min(999, $page));
 $plainMode = isset($_GET['plain']) && $_GET['plain'] == 1;
 
 $url = "https://teletekst-data.nos.nl/json/{$page}";
-$json = file_get_contents($url);
+$json = @file_get_contents($url);
 
 if ($json === false) {
-    http_response_code(502);
-    die(json_encode(['error' => "Could not fetch page {$page}"]));
+    outputErrorPage($page);
+    exit;
 }
 
 $data = json_decode($json, true);
+
+if (!isset($data['content']) || trim($data['content']) === '' || 
+    strpos($json, 'No content found') !== false) {
+    outputErrorPage($page);
+    exit;
+}
+
+try {
+    $lines = parseTeletekst($data['content'], $plainMode);
+    
+    if (count($lines) < 5) {
+        outputErrorPage($page);
+        exit;
+    }
+} catch (Exception $e) {
+    outputErrorPage($page);
+    exit;
+}
+
+// Success
+$result = [
+    'page'      => $page,
+    'prevPage'  => $data['prevPage'] ?? null,
+    'nextPage'  => $data['nextPage'] ?? null,
+    'lines'     => $lines
+];
+
+header('Content-Type: application/json; charset=utf-8');
+echo json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+
+// ====================== Helpers ======================
+
+function outputErrorPage($page)
+{
+    $lines = generateErrorPage();
+    
+    $result = [
+        'page'     => $page,
+        'prevPage' => null,
+        'nextPage' => null,
+        'lines'    => $lines,
+        'error'    => 'Pagina niet beschikbaar'
+    ];
+
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+}
+
+function generateErrorPage(): array
+{
+    $lines = [];
+    
+    $title = "Pagina niet beschikbaar";
+    $padding = str_repeat(' ', (40 - mb_strlen($title)) / 2);
+    $lines[] = $padding . $title . str_repeat(' ', 40 - mb_strlen($padding . $title)); // ensure exactly 40 chars
+    
+    // All other lines are just ONE space long as requested
+    $empty = ' ';
+    for ($i = 1; $i < 24; $i++) {
+        $lines[] = $empty;
+    }
+    
+    return $lines;
+}
 
 function parseTeletekst($html, $plainMode) {
     $resultLines = [];
@@ -24,16 +88,12 @@ function parseTeletekst($html, $plainMode) {
     foreach ($rawLines as $raw) {
         if ($raw === '') continue;
 
-        // Add [#N] only if not in plain mode and not first line
         if (!$firstLine && !$plainMode) {
             $resultLines[] = "[#N]";
         }
         $firstLine = false;
 
-        // Convert Teletext special codes to spaces
         $raw = preg_replace('/&#xF0[0-9A-Fa-f]{2};/', ' ', $raw);
-
-        $text = html_entity_decode($raw, ENT_QUOTES | ENT_HTML5, 'UTF-8');
 
         $dom = new DOMDocument();
         libxml_use_internal_errors(true);
@@ -45,8 +105,7 @@ function parseTeletekst($html, $plainMode) {
 
         foreach ($xpath->query('//text() | //span') as $node) {
             if ($node->nodeType === XML_TEXT_NODE) {
-                $part = $node->textContent;
-                $currentText .= $part;
+                $currentText .= $node->textContent;
             } elseif ($node->nodeName === 'span' && !$plainMode) {
                 $class = $node->getAttribute('class');
                 $colorCode = '';
@@ -73,15 +132,3 @@ function parseTeletekst($html, $plainMode) {
 
     return $resultLines;
 }
-
-$lines = parseTeletekst($data['content'] ?? '', $plainMode);
-
-$result = [
-    'page'      => $page,
-    'prevPage'  => $data['prevPage'] ?? null,
-    'nextPage'  => $data['nextPage'] ?? null,
-    'lines'     => $lines
-];
-
-header('Content-Type: application/json; charset=utf-8');
-echo json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
