@@ -3,8 +3,6 @@
 $page = isset($_GET['page']) ? (int)$_GET['page'] : 101;
 $page = max(100, min(999, $page));
 
-$plainMode = isset($_GET['plain']) && $_GET['plain'] == 1;
-
 $url = "https://teletekst-data.nos.nl/json/{$page}";
 $json = @file_get_contents($url);
 
@@ -22,18 +20,13 @@ if (!isset($data['content']) || trim($data['content']) === '' ||
 }
 
 try {
-    $lines = parseTeletekst($data['content'], $plainMode);
-    
-    if (count($lines) < 5) {
-        outputErrorPage($page);
-        exit;
-    }
+    $lines = parseTeletekst($data['content']);
+    $lines = padTo24Lines($lines);
 } catch (Exception $e) {
     outputErrorPage($page);
     exit;
 }
 
-// Success
 $result = [
     'page'      => $page,
     'prevPage'  => $data['prevPage'] ?? null,
@@ -48,13 +41,11 @@ echo json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
 
 function outputErrorPage($page)
 {
-    $lines = generateErrorPage();
-    
     $result = [
         'page'     => $page,
         'prevPage' => null,
         'nextPage' => null,
-        'lines'    => $lines,
+        'lines'    => generateErrorPage(),
         'error'    => 'Pagina niet beschikbaar'
     ];
 
@@ -64,70 +55,44 @@ function outputErrorPage($page)
 
 function generateErrorPage(): array
 {
-    $lines = [];
-    
-    $title = "Pagina niet beschikbaar";
-    $padding = str_repeat(' ', (40 - mb_strlen($title)) / 2);
-    $lines[] = $padding . $title . str_repeat(' ', 40 - mb_strlen($padding . $title)); // ensure exactly 40 chars
-    
-    // All other lines are just ONE space long as requested
-    $empty = ' ';
+    $lines = ["Pagina niet beschikbaar"];
     for ($i = 1; $i < 24; $i++) {
-        $lines[] = $empty;
+        $lines[] = "";
     }
-    
     return $lines;
 }
 
-function parseTeletekst($html, $plainMode) {
-    $resultLines = [];
-    $firstLine = true;
+function padTo24Lines(array $lines): array
+{
+    while (count($lines) < 24) {
+        $lines[] = "";
+    }
+    return array_slice($lines, 0, 24);
+}
 
+/**
+ * Minimal cleaning - preserves original spacing as much as possible
+ */
+function parseTeletekst($html): array
+{
+    $resultLines = [];
     $rawLines = explode("\n", $html);
 
     foreach ($rawLines as $raw) {
-        if ($raw === '') continue;
-
-        if (!$firstLine && !$plainMode) {
-            $resultLines[] = "[#N]";
-        }
-        $firstLine = false;
-
+        // Replace ONLY teletext special codes with space
         $raw = preg_replace('/&#xF0[0-9A-Fa-f]{2};/', ' ', $raw);
 
-        $dom = new DOMDocument();
-        libxml_use_internal_errors(true);
-        $dom->loadHTML('<root>' . $raw . '</root>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-        libxml_clear_errors();
+        // Decode
+        $text = html_entity_decode($raw, ENT_QUOTES | ENT_HTML5, 'UTF-8');
 
-        $xpath = new DOMXPath($dom);
-        $currentText = '';
+        // Strip tags
+        $text = strip_tags($text);
 
-        foreach ($xpath->query('//text() | //span') as $node) {
-            if ($node->nodeType === XML_TEXT_NODE) {
-                $currentText .= $node->textContent;
-            } elseif ($node->nodeName === 'span' && !$plainMode) {
-                $class = $node->getAttribute('class');
-                $colorCode = '';
-                if (strpos($class, 'green')  !== false) $colorCode = '3';
-                elseif (strpos($class, 'red')    !== false) $colorCode = '9';
-                elseif (strpos($class, 'yellow') !== false) $colorCode = 'A';
-                elseif (strpos($class, 'cyan')   !== false) $colorCode = '7';
-                elseif (strpos($class, 'blue')   !== false) $colorCode = '4';
+        // Keep ONLY printable ASCII, replace rest with space
+        $text = preg_replace('/[^\x20-\x7E]/', ' ', $text);
 
-                if ($colorCode !== '') {
-                    if ($currentText !== '') {
-                        $resultLines[] = $currentText;
-                        $currentText = '';
-                    }
-                    $resultLines[] = "[#C{$colorCode}]";
-                }
-            }
-        }
-
-        if ($currentText !== '') {
-            $resultLines[] = $currentText;
-        }
+        // Do NOT collapse spaces at all - keep original layout
+        $resultLines[] = $text;
     }
 
     return $resultLines;
