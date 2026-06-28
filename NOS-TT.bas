@@ -1,7 +1,7 @@
 100 VDP(10)=148:CLEAR: IN$="101": _NINIT:'start Fujinet
 120 SCREEN0,0,0:COLOR15,0,0:WIDTH40:KEYOFF:POKE &HF3B1,26:'Allow 26 lines
 130 L=0:C=0
-140 U$="N:https://vampier.net/NOS-TT.php?page="+IN$+"&plain=1"
+140 U$="N:https://[YOUR SERVER]/NOS-TT.php?page="+IN$+"&plain=1"
 150 _NOPEN(U$,12,0):_NJSONPARSE(U$)
 160 L$=MID$(STR$(C),2):C=C+1:IFC=25THEN 190
 170 _NJSONQUERY(U$,"/lines/"+L$,F$,S%)
