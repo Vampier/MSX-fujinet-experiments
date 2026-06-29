@@ -1,9 +1,18 @@
 <?php
 
-$page = isset($_GET['page']) ? (int)$_GET['page'] : 101;
-$page = max(100, min(999, $page));
+// Get the page parameter (can be number or "number-subnumber")
+$pageInput = isset($_GET['page']) ? trim($_GET['page']) : '101';
 
-$url = "https://teletekst-data.nos.nl/json/{$page}";
+// Allow only valid format: 100-999 or 100-1 up to 999-9
+if (!preg_match('/^(\d{3})(?:-(\d+))?$/', $pageInput, $matches)) {
+    $pageInput = '101'; // fallback
+}
+
+$page = $matches[1] ?? '101';           // main page number
+$sub  = isset($matches[2]) ? $matches[2] : '';
+
+$url = "https://teletekst-data.nos.nl/json/{$page}" . ($sub ? "-{$sub}" : "");
+
 $json = @file_get_contents($url);
 
 if ($json === false) {
@@ -46,7 +55,7 @@ function outputErrorPage($page)
         'prevPage' => null,
         'nextPage' => null,
         'lines'    => generateErrorPage(),
-        'error'    => '         Pagina niet beschikbaar'
+        'error'    => 'Pagina niet beschikbaar'
     ];
 
     header('Content-Type: application/json; charset=utf-8');
@@ -55,7 +64,7 @@ function outputErrorPage($page)
 
 function generateErrorPage(): array
 {
-    $lines = ["Pagina niet beschikbaar"];
+    $lines = ["         Pagina niet beschikbaar"];
     for ($i = 1; $i < 24; $i++) {
         $lines[] = "";
     }
@@ -82,8 +91,27 @@ function parseTeletekst($html): array
         // Replace ONLY teletext special codes with space
         $raw = preg_replace('/&#xF0[0-9A-Fa-f]{2};/', ' ', $raw);
 
-        // Decode
+        // Decode HTML entities first
         $text = html_entity_decode($raw, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+        // Convert accented characters to ASCII-safe equivalents
+        $text = strtr($text, [
+            'á' => 'a', 'à' => 'a', 'ä' => 'a', 'â' => 'a',
+            'é' => 'e', 'è' => 'e', 'ë' => 'e', 'ê' => 'e',
+            'í' => 'i', 'ì' => 'i', 'ï' => 'i', 'î' => 'i',
+            'ó' => 'o', 'ò' => 'o', 'ö' => 'o', 'ô' => 'o',
+            'ú' => 'u', 'ù' => 'u', 'ü' => 'u', 'û' => 'u',
+            'ý' => 'y',
+            'ñ' => 'n',
+            'ç' => 'c',
+            'Á' => 'A', 'À' => 'A', 'Ä' => 'A', 'Â' => 'A',
+            'É' => 'E', 'È' => 'E', 'Ë' => 'E', 'Ê' => 'E',
+            'Í' => 'I', 'Ì' => 'I', 'Ï' => 'I', 'Î' => 'I',
+            'Ó' => 'O', 'Ò' => 'O', 'Ö' => 'O', 'Ô' => 'O',
+            'Ú' => 'U', 'Ù' => 'U', 'Ü' => 'U', 'Û' => 'U',
+            'Ñ' => 'N',
+            'Ç' => 'C',
+        ]);
 
         // Strip tags
         $text = strip_tags($text);
