@@ -46,7 +46,7 @@ function outputErrorPage($page)
         'prevPage' => null,
         'nextPage' => null,
         'lines'    => generateErrorPage(),
-        'error'    => 'Pagina niet beschikbaar'
+        'error'    => '         Pagina niet beschikbaar'
     ];
 
     header('Content-Type: application/json; charset=utf-8');
